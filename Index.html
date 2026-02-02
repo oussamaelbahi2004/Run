@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SpeedRun - GPS Tracker</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Leaflet Map CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- html2canvas for taking screenshots -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Teko:wght@400;600&family=Inter:wght@400;700&display=swap');
+
+        :root {
+            --neon-green: #39ff14;
+            --strava-orange: #fc4c02;
+            --dark-bg: #0f1115;
+            --panel-bg: #1a1d24;
+        }
+
+        body {
+            background-color: var(--dark-bg);
+            color: white;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+        }
+
+        .digital-font {
+            font-family: 'Teko', sans-serif;
+            letter-spacing: 1px;
+        }
+
+        /* --- Map & Layout --- */
+        #app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        #map-container {
+            position: relative;
+            height: 40vh;
+            width: 100%;
+            border-bottom: 2px solid var(--neon-green);
+            z-index: 1;
+        }
+
+        #map {
+            height: 100%;
+            width: 100%;
+        }
+
+        .btn-locate-map {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: var(--panel-bg);
+            border: 1px solid var(--neon-green);
+            color: var(--neon-green);
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.5);
+            cursor: pointer;
+        }
+
+        /* --- Stats Cards --- */
+        .stat-card {
+            background: var(--panel-bg);
+            border-radius: 12px;
+            padding: 1rem;
+            text-align: center;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 600;
+            color: var(--neon-green);
+            line-height: 1;
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: #9ca3af;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-top: 4px;
+        }
+
+        /* --- Buttons --- */
+        .btn-main {
+            background: var(--neon-green);
+            color: black;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            box-shadow: 0 0 15px rgba(57, 255, 20, 0.3);
+        }
+
+        .btn-stop {
+            background: #ef4444;
+            color: white;
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.3);
+        }
+
+        /* --- Animations --- */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(57, 255, 20, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(57, 255, 20, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(57, 255, 20, 0); }
+        }
+
+        .recording-indicator {
+            width: 12px;
+            height: 12px;
+            background-color: var(--neon-green);
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+
+        .is-recording .recording-indicator {
+            animation: pulse-ring 2s infinite;
+        }
+
+        /* Leaflet Dark Mode */
+        .leaflet-layer,
+        .leaflet-control-zoom-in,
+        .leaflet-control-zoom-out,
+        .leaflet-control-attribution {
+            filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
+        }
+
+        /* --- SUMMARY SCREEN (Hidden by default) --- */
+        #summary-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            z-index: 2000;
+            overflow-y: auto;
+            display: none; /* Hidden initially */
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        /* This div specifically mimics the Strava image */
+        #summary-card {
+            background-color: black;
+            width: 100%;
+            max-width: 400px;
+            padding: 40px 20px;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            /* Ensure it captures well */
+            border: 1px solid #333; 
+        }
+
+        .sum-label {
+            font-size: 1rem;
+            color: white;
+            font-weight: 700;
+            text-transform: capitalize;
+            margin-top: 20px;
+        }
+
+        .sum-value {
+            font-size: 3.5rem;
+            font-weight: 700;
+            color: white;
+            line-height: 1;
+            font-family: 'Inter', sans-serif; 
+            letter-spacing: -1px;
+        }
+        
+        .sum-unit {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #ccc;
+        }
+
+        .sum-path-container {
+            width: 100%;
+            height: 250px;
+            margin-top: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* The SVG Path Line */
+        #route-svg path {
+            fill: none;
+            stroke: var(--strava-orange);
+            stroke-width: 4;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            filter: drop-shadow(0px 0px 4px rgba(252, 76, 2, 0.5));
+        }
+
+        .logo-mark {
+            margin-top: 30px;
+            font-weight: 800;
+            letter-spacing: 2px;
+            color: white;
+            text-transform: uppercase;
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- APP VIEW -->
+    <div id="app-container">
+        <!-- Header -->
+        <header class="flex justify-between items-center p-4 bg-gray-900 border-b border-gray-800">
+            <div class="flex items-center">
+                <i class="fa-solid fa-person-running text-green-400 text-2xl mr-2"></i>
+                <h1 class="text-xl font-bold tracking-wider">SPEED<span class="text-green-400">RUN</span></h1>
+            </div>
+            <div id="status-badge" class="flex items-center text-xs font-mono text-gray-400 bg-gray-800 px-3 py-1 rounded-full">
+                <span class="recording-indicator"></span>
+                <span id="status-text">INITIALIZING</span>
+            </div>
+        </header>
+
+        <!-- Map -->
+        <div id="map-container">
+            <div id="map"></div>
+            <button id="btn-locate" class="btn-locate-map"><i class="fa-solid fa-crosshairs"></i></button>
+        </div>
+
+        <!-- Live Stats -->
+        <main class="flex-1 overflow-y-auto p-4 pb-24">
+            <div id="error-msg" class="hidden bg-red-900/50 border border-red-500 text-red-200 text-sm p-3 rounded-lg mb-4 flex items-start">
+                <i class="fa-solid fa-circle-exclamation mt-1 mr-2 flex-shrink-0"></i> 
+                <span id="error-text"></span>
+            </div>
+
+            <!-- Pace Prediction Box -->
+            <div class="bg-gray-800 border-l-4 border-green-400 p-4 rounded mb-4">
+                <p class="text-xs text-gray-400 uppercase font-bold">Estimated 1KM Pace</p>
+                <div class="text-3xl digital-font text-white" id="prediction-value">--:--</div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div class="stat-card">
+                    <div class="stat-value digital-font" id="timer">00:00</div>
+                    <div class="stat-label">Time</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value digital-font"><span id="distance">0.00</span></div>
+                    <div class="stat-label">KM</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value digital-font"><span id="speed">0.0</span></div>
+                    <div class="stat-label">Km/h</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value digital-font"><span id="pace">0'00"</span></div>
+                    <div class="stat-label">Pace /km</div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Controls -->
+        <div class="fixed bottom-0 left-0 w-full p-4 bg-gray-900 border-t border-gray-800 z-50">
+            <button id="btn-start" class="btn-main py-4 rounded-xl text-xl w-full flex items-center justify-center gap-2">
+                <i class="fa-solid fa-play"></i> START RUN
+            </button>
+            <div id="active-controls" class="hidden grid grid-cols-2 gap-4">
+                <button id="btn-pause" class="bg-yellow-500 text-black font-bold py-4 rounded-xl text-lg flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-pause"></i> PAUSE
+                </button>
+                <button id="btn-stop" class="btn-stop py-4 rounded-xl text-lg flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-flag-checkered"></i> FINISH
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SUMMARY OVERLAY (Generates the Image) -->
+    <div id="summary-overlay">
+        
+        <!-- The Card to Capture -->
+        <div id="summary-card">
+            
+            <!-- Distance -->
+            <div class="sum-label">Distance</div>
+            <div class="sum-value"><span id="sum-dist">3.02</span> <span class="sum-unit">km</span></div>
+
+            <!-- Pace -->
+            <div class="sum-label">Pace</div>
+            <div class="sum-value"><span id="sum-pace">5:10</span> <span class="sum-unit">/km</span></div>
+
+            <!-- Time -->
+            <div class="sum-label">Time</div>
+            <div class="sum-value" id="sum-time">15m 36s</div>
+
+            <!-- The Abstract Line Path -->
+            <div class="sum-path-container">
+                <svg id="route-svg" viewBox="0 0 100 100" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
+                    <!-- Path will be injected here via JS -->
+                </svg>
+            </div>
+
+            <div class="logo-mark">SPEED RUN</div>
+            <div class="text-gray-500 text-xs mt-2" id="sum-date">Oct 24, 2023</div>
+        </div>
+
+        <!-- Action Buttons for Summary -->
+        <div class="flex flex-col w-full max-w-[400px] mt-6 gap-3">
+            <button id="btn-download-img" class="bg-white text-black font-bold py-3 rounded-lg w-full">
+                <i class="fa-solid fa-download"></i> SAVE IMAGE
+            </button>
+            <button id="btn-close-summary" class="bg-gray-800 text-white py-3 rounded-lg w-full">
+                CLOSE & NEW RUN
+            </button>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <script>
+        // --- State ---
+        let map, userMarker, pathLine;
+        let watchId = null;
+        let isTracking = false;
+        let isPaused = false;
+        let startTime = 0;
+        let elapsedTime = 0; 
+        let timerInterval = null;
+        let totalDistance = 0;
+        let pathCoordinates = []; // Array of [lat, lng]
+        let lastPosition = null;
+        let initialLocationFound = false;
+
+        // --- DOM Elements ---
+        const els = {
+            appContainer: document.getElementById('app-container'),
+            timer: document.getElementById('timer'),
+            distance: document.getElementById('distance'),
+            speed: document.getElementById('speed'),
+            pace: document.getElementById('pace'),
+            prediction: document.getElementById('prediction-value'),
+            btnStart: document.getElementById('btn-start'),
+            activeControls: document.getElementById('active-controls'),
+            btnPause: document.getElementById('btn-pause'),
+            btnStop: document.getElementById('btn-stop'),
+            btnLocate: document.getElementById('btn-locate'),
+            statusBadge: document.getElementById('status-badge'),
+            statusText: document.getElementById('status-text'),
+            errorMsg: document.getElementById('error-msg'),
+            errorText: document.getElementById('error-text'),
+            
+            // Summary Elements
+            summaryOverlay: document.getElementById('summary-overlay'),
+            summaryCard: document.getElementById('summary-card'),
+            sumDist: document.getElementById('sum-dist'),
+            sumPace: document.getElementById('sum-pace'),
+            sumTime: document.getElementById('sum-time'),
+            sumDate: document.getElementById('sum-date'),
+            routeSvg: document.getElementById('route-svg'),
+            btnDownload: document.getElementById('btn-download-img'),
+            btnCloseSummary: document.getElementById('btn-close-summary')
+        };
+
+        // --- Init ---
+        window.onload = function() {
+            initMap();
+            setTimeout(() => {
+                map.invalidateSize();
+                requestLocationPermission();
+            }, 500);
+        };
+
+        function initMap() {
+            map = L.map('map').setView([20, 0], 2);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap',
+                maxZoom: 19
+            }).addTo(map);
+
+            pathLine = L.polyline([], {
+                color: '#39ff14', // Neon Green for live map
+                weight: 5,
+                opacity: 0.9,
+                smoothFactor: 1
+            }).addTo(map);
+        }
+
+        function requestLocationPermission(highAccuracy = true) {
+            if ("geolocation" in navigator) {
+                els.statusText.innerText = "SEARCHING GPS...";
+                els.statusText.className = "text-yellow-400 font-bold animate-pulse";
+                
+                const options = { enableHighAccuracy: highAccuracy, timeout: 20000, maximumAge: 0 };
+
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const { latitude, longitude } = position.coords;
+                        initialLocationFound = true;
+                        updateMapPosition(latitude, longitude, true);
+                        els.statusText.innerText = "READY";
+                        els.statusText.className = "text-green-400 font-bold";
+                        els.errorMsg.classList.add('hidden');
+                    },
+                    (error) => {
+                        if (highAccuracy) requestLocationPermission(false);
+                        else handleError(error);
+                    },
+                    options
+                );
+            } else {
+                showError("Geolocation not supported.");
+            }
+        }
+
+        // --- Run Logic ---
+
+        function startRun() {
+            if (!initialLocationFound) {
+                requestLocationPermission();
+                if(!confirm("GPS not locked. Start anyway?")) return;
+            }
+
+            isTracking = true;
+            isPaused = false;
+            startTime = Date.now() - (elapsedTime * 1000);
+            
+            els.btnStart.classList.add('hidden');
+            els.activeControls.classList.remove('hidden');
+            els.activeControls.classList.add('grid');
+            els.statusBadge.classList.add('is-recording');
+            els.statusText.innerText = "RECORDING";
+            els.statusText.className = "";
+            
+            timerInterval = setInterval(updateTimer, 1000);
+
+            watchId = navigator.geolocation.watchPosition(
+                handlePosition, 
+                handleError, 
+                { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+            );
+        }
+
+        function pauseRun() {
+            if (isPaused) {
+                startRun();
+                els.btnPause.innerHTML = '<i class="fa-solid fa-pause"></i> PAUSE';
+                els.btnPause.classList.replace('bg-green-500', 'bg-yellow-500');
+            } else {
+                isTracking = false;
+                isPaused = true;
+                clearInterval(timerInterval);
+                navigator.geolocation.clearWatch(watchId);
+                els.statusBadge.classList.remove('is-recording');
+                els.statusText.innerText = "PAUSED";
+                els.btnPause.innerHTML = '<i class="fa-solid fa-play"></i> RESUME';
+                els.btnPause.classList.replace('bg-yellow-500', 'bg-green-500');
+            }
+        }
+
+        function finishRun() {
+            isTracking = false;
+            isPaused = false;
+            clearInterval(timerInterval);
+            navigator.geolocation.clearWatch(watchId);
+
+            els.activeControls.classList.add('hidden');
+            els.activeControls.classList.remove('grid');
+            els.statusBadge.classList.remove('is-recording');
+            els.statusText.innerText = "FINISHED";
+
+            showSummaryScreen();
+        }
+
+        // --- Summary & Image Gen Logic ---
+
+        function showSummaryScreen() {
+            // 1. Set Date
+            const now = new Date();
+            els.sumDate.innerText = now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+
+            // 2. Set Distance
+            els.sumDist.innerText = totalDistance.toFixed(2);
+
+            // 3. Set Time (Format: 15m 36s)
+            const m = Math.floor(elapsedTime / 60);
+            const s = elapsedTime % 60;
+            els.sumTime.innerText = `${m}m ${s}s`;
+
+            // 4. Set Pace
+            els.sumPace.innerText = els.pace.innerText.replace('"', '').replace("'", ':');
+
+            // 5. Generate SVG Path from coordinates
+            generateSVGPath();
+
+            // 6. Show Overlay
+            els.summaryOverlay.style.display = 'flex';
+        }
+
+        function generateSVGPath() {
+            if (pathCoordinates.length < 2) {
+                els.routeSvg.innerHTML = ''; 
+                return;
+            }
+
+            // Find bounds
+            let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+            pathCoordinates.forEach(([lat, lng]) => {
+                if (lat < minLat) minLat = lat;
+                if (lat > maxLat) maxLat = lat;
+                if (lng < minLng) minLng = lng;
+                if (lng > maxLng) maxLng = lng;
+            });
+
+            const latRange = maxLat - minLat || 0.0001;
+            const lngRange = maxLng - minLng || 0.0001;
+
+            // Normalize points to 0-100 coordinate space
+            // SVG Y increases downwards, so we invert latitude
+            const points = pathCoordinates.map(([lat, lng]) => {
+                const x = ((lng - minLng) / lngRange) * 80 + 10; // 10% padding
+                const y = 90 - ((lat - minLat) / latRange) * 80; // 10% padding, inverted Y
+                return `${x},${y}`;
+            });
+// Create Path Data
+            const d = `M ${points.join(' L ')}`;
+            
+            // Create Path Element
+            const pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            pathEl.setAttribute("d", d);
+            
+            els.routeSvg.innerHTML = ''; // clear previous
+            els.routeSvg.appendChild(pathEl);
+        }
+
+        // --- Download Image ---
+        els.btnDownload.addEventListener('click', () => {
+            els.btnDownload.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> GENERATING...';
+            
+            html2canvas(els.summaryCard, {
+                backgroundColor: "#000000",
+                scale: 2 // Higher quality
+            }).then(canvas => {
+                // Trigger download
+                const link = document.createElement('a');
+                link.download = `run_summary_${Date.now()}.png`;
+                link.href = canvas.toDataURL();
+                link.click();
+                els.btnDownload.innerHTML = '<i class="fa-solid fa-check"></i> SAVED!';
+                setTimeout(() => {
+                    els.btnDownload.innerHTML = '<i class="fa-solid fa-download"></i> SAVE IMAGE';
+                }, 2000);
+            });
+        });
+
+        els.btnCloseSummary.addEventListener('click', () => {
+            els.summaryOverlay.style.display = 'none';
+            resetAndStart();
+        });
+
+        function resetAndStart() {
+            // Reset Data
+            elapsedTime = 0;
+            totalDistance = 0;
+            pathCoordinates = [];
+            lastPosition = null;
+            pathLine.setLatLngs([]);
+            if(userMarker) map.removeLayer(userMarker);
+            userMarker = null;
+            
+            updateDisplay(0);
+            els.timer.innerText = "00:00";
+            
+            els.btnStart.classList.remove('hidden');
+            els.statusText.innerText = "READY";
+            requestLocationPermission();
+        }
+
+        // --- Update Logic ---
+
+        function updateTimer() {
+            const now = Date.now();
+            elapsedTime = Math.floor((now - startTime) / 1000);
+            
+            const m = Math.floor(elapsedTime / 60);
+            const s = elapsedTime % 60;
+            // Only showing MM:SS to match request style
+            els.timer.innerText = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+
+        function handlePosition(position) {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            const accuracy = position.coords.accuracy;
+            let speed = position.coords.speed; 
+
+            if (accuracy > 60) return; 
+
+            const newLatLng = [lat, lng];
+            updateMapPosition(lat, lng);
+            pathCoordinates.push(newLatLng);
+            pathLine.setLatLngs(pathCoordinates);
+
+            if (lastPosition) {
+                const dist = calculateDistance(lastPosition.lat, lastPosition.lng, lat, lng);
+                if (dist > 0.002) totalDistance += dist;
+            }
+
+            lastPosition = { lat, lng };
+
+            if (speed === null && elapsedTime > 5 && totalDistance > 0.01) {
+                 const hours = elapsedTime / 3600;
+                 speed = (totalDistance / hours) / 3.6; 
+            }
+            
+            if (!speed || speed < 0.2) speed = 0;
+            updateDisplay(speed);
+        }
+
+        function updateDisplay(speedMps) {
+            els.distance.innerText = totalDistance.toFixed(2);
+            const speedKmh = speedMps * 3.6;
+            els.speed.innerText = speedKmh.toFixed(1);
+
+            if (speedKmh > 0.5) {
+                const paceDecimal = 60 / speedKmh;
+                const paceMin = Math.floor(paceDecimal);
+                const paceSec = Math.round((paceDecimal - paceMin) * 60);
+                els.pace.innerText = `${paceMin}'${paceSec.toString().padStart(2, '0')}"`;
+                els.prediction.innerText = `${paceMin}m ${paceSec}s`;
+                els.prediction.style.color = "#39ff14";
+            } else {
+                els.pace.innerText = `-'-"`;
+                els.prediction.innerText = "--:--";
+                els.prediction.style.color = "white";
+            }
+        }
+
+        function updateMapPosition(lat, lng, forceCenter = false) {
+            if (!userMarker) {
+                const icon = L.divIcon({
+                    className: 'custom-div-icon',
+                    html: "<div style='background-color:#39ff14;width:16px;height:16px;border-radius:50%;border:3px solid white;box-shadow:0 0 10px #39ff14;'></div>",
+                    iconSize: [16, 16],
+                    iconAnchor: [8, 8]
+                });
+                userMarker = L.marker([lat, lng], {icon: icon}).addTo(map);
+            } else {
+                userMarker.setLatLng([lat, lng]);
+            }
+            if (isTracking || forceCenter) map.panTo([lat, lng], { animate: true });
+        }
+
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371; 
+            const dLat = deg2rad(lat2 - lat1);
+            const dLon = deg2rad(lon2 - lon1);
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * Math.sin(dLon/2) * Math.sin(dLon/2); 
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+            return R * c; 
+        }
+
+        function deg2rad(deg) { return deg * (Math.PI/180); }
+
+        function handleError(error) {
+            els.statusText.innerText = "GPS ERROR";
+            els.statusText.className = "text-red-500 font-bold";
+            let msg = "Unknown error";
+            switch(error.code) {
+                case error.PERMISSION_DENIED: msg = "GPS denied."; break;
+                case error.POSITION_UNAVAILABLE: msg = "Signal lost."; break;
+                case error.TIMEOUT: msg = "Location request timed out."; break;
+            }
+            showError(msg);
+        }
+
+        function showError(msg) {
+            els.errorMsg.classList.remove('hidden');
+            els.errorText.innerText = msg;
+            setTimeout(() => els.errorMsg.classList.add('hidden'), 8000);
+        }
+// --- Events ---
+        els.btnStart.addEventListener('click', startRun);
+        els.btnPause.addEventListener('click', pauseRun);
+        els.btnStop.addEventListener('click', finishRun);
+        els.btnLocate.addEventListener('click', () => {
+            map.invalidateSize();
+            requestLocationPermission();
+        });
+
+    </script>
+</body>
+</html>
+
+            
